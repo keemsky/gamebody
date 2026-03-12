@@ -442,7 +442,7 @@ function saveAnswer(answer) {
 
 // Recording
 function startRec(stream) {
-  if (!window.MediaRecorder) return;
+  if (!stream || !window.MediaRecorder) return;
   S.recChunks = [];
   try { S.mediaRecorder = new MediaRecorder(stream, { mimeType:'video/webm;codecs=vp9' }); }
   catch(e) { S.mediaRecorder = new MediaRecorder(stream); }
@@ -475,6 +475,8 @@ function requestCamera() {
   status.textContent = 'Waiting for browser permission...';
   navigator.mediaDevices.getUserMedia({ video:{ width:640, height:480 }, audio:false })
     .then(function(stream) {
+      // Keep stream reference to confirm permission granted
+      // MediaPipe Camera will open its own stream when game starts
       S.stream = stream;
       status.textContent = 'Camera ready!';
       status.style.color = '#10b981';
@@ -503,8 +505,6 @@ async function startGame() {
   var loading = document.getElementById('loadingOverlay');
   loading.classList.remove('hidden');
   document.getElementById('loadingText').textContent = 'Loading questions...';
-  videoEl.srcObject = S.stream;
-  try { await videoEl.play(); } catch(e) {}
   var questions = await loadQuestionsFromAPI();
   if (!questions.length) {
     questions = [
@@ -524,12 +524,22 @@ async function startGame() {
   document.getElementById('gameScreen').classList.add('active');
   updateScore();
   initPose();
+  // Stop old stream tracks to avoid conflict, get fresh stream for MediaPipe Camera
+  if (S.stream) {
+    S.stream.getTracks().forEach(function(t){ t.stop(); });
+  }
   S.camera = new Camera(videoEl, {
     onFrame: async function() { if (S.pose) await S.pose.send({ image:videoEl }); },
     width:640, height:480
   });
   S.camera.start();
-  startRec(S.stream);
+  S.camera.start().then(function() {
+    // After camera started, capture its stream for recording
+    var liveStream = videoEl.srcObject;
+    if (liveStream) startRec(liveStream);
+  }).catch(function() {
+    startRec(null);
+  });
   loadQuestion();
 }
 
@@ -554,7 +564,15 @@ function endGame() {
 function restartGame() {
   document.getElementById('endScreen').classList.remove('active');
   if (S.camera) { S.camera.stop(); S.camera = null; }
-  if (S.stream) { S.stream.getTracks().forEach(function(t){ t.stop(); }); S.stream = null; }
+  // Stop all video tracks
+  if (videoEl.srcObject) {
+    videoEl.srcObject.getTracks().forEach(function(t){ t.stop(); });
+    videoEl.srcObject = null;
+  }
+  if (S.stream) {
+    S.stream.getTracks().forEach(function(t){ t.stop(); });
+    S.stream = null;
+  }
   document.getElementById('step1').style.display = 'block';
   document.getElementById('step2').style.display = 'none';
   document.getElementById('camStatus').textContent = 'Camera not yet enabled';
