@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Classroom Gesture Quiz</title>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Kanit:wght@400;700;900&display=swap');
+:root {
+  --bg:#0a0e1a; --surface:#111827; --card:#1a2235;
+  --blue:#3b82f6; --red:#f43f5e; --gold:#f59e0b; --green:#10b981;
+  --text:#f1f5f9; --dim:#94a3b8; --border:rgba(255,255,255,0.08);
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Kanit',sans-serif;background:var(--bg);color:var(--text);height:100vh;overflow:hidden;display:flex;flex-direction:column;user-select:none;}
+.loading-overlay{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:100;gap:1rem;}
+.loading-overlay.hidden{display:none;}
+.spinner{width:48px;height:48px;border:4px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin 0.8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.screen{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:1.2rem;padding:2rem;z-index:10;}
+.screen.active{display:flex;}
+.logo h1{font-size:clamp(2.2rem,5vw,4.5rem);font-weight:900;background:linear-gradient(135deg,var(--blue),var(--red));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;text-align:center;}
+.logo p{color:var(--dim);text-align:center;font-size:.95rem;margin-top:.3rem;}
+.setup-box{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:1.5rem;width:100%;max-width:560px;}
+.setup-box label{display:block;font-size:.8rem;color:var(--dim);margin-bottom:.4rem;}
+.setup-box input{width:100%;background:rgba(255,255,255,0.06);border:1px solid var(--border);border-radius:8px;padding:.6rem .9rem;color:var(--text);font-size:.85rem;outline:none;font-family:monospace;}
+.setup-box input:focus{border-color:var(--blue);}
+.setup-box .hint{font-size:.72rem;color:var(--dim);margin-top:.4rem;line-height:1.5;}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.8rem;max-width:620px;width:100%;}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:.9rem;text-align:center;}
+.card .ico{font-size:1.8rem;display:block;margin-bottom:.3rem;}
+.card h3{font-size:.78rem;color:var(--gold);margin-bottom:.2rem;}
+.card p{font-size:.7rem;color:var(--dim);line-height:1.3;}
+.btn{border:none;font-family:'Kanit',sans-serif;font-weight:700;border-radius:50px;cursor:pointer;transition:all .22s;color:#fff;}
+.btn-green{background:linear-gradient(135deg,#059669,var(--green));box-shadow:0 4px 20px rgba(16,185,129,.35);font-size:1.1rem;padding:.8rem 2.2rem;}
+.btn-blue{background:linear-gradient(135deg,var(--blue),#6366f1);box-shadow:0 4px 20px rgba(59,130,246,.35);font-size:1.2rem;padding:.85rem 2.8rem;}
+.btn-gold{background:linear-gradient(135deg,var(--gold),#f97316);box-shadow:0 4px 20px rgba(245,158,11,.35);font-size:1rem;padding:.75rem 2rem;color:#111;}
+.btn-red{background:var(--red);font-size:.82rem;padding:.32rem .9rem;border-radius:8px;}
+.btn:hover{transform:scale(1.04);}
+.status-msg{font-size:.82rem;margin-top:.5rem;}
+.err-box{display:none;background:rgba(244,63,94,.1);border:1px solid rgba(244,63,94,.3);border-radius:10px;padding:.9rem 1.2rem;max-width:480px;text-align:center;}
+.err-box p{font-size:.8rem;color:#fca5a5;line-height:1.6;margin-bottom:.5rem;}
+
+/* GAME */
+#gameScreen{display:none;flex-direction:column;height:100vh;width:100vw;position:fixed;inset:0;}
+#gameScreen.active{display:flex;}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:.45rem 1.1rem;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;}
+.score{display:flex;align-items:center;gap:.35rem;font-size:1.3rem;font-weight:900;}
+.score-n{color:var(--gold);font-size:1.7rem;transition:transform .3s;}
+.score-n.pop{animation:pop .35s ease;}
+@keyframes pop{0%{transform:scale(1)}50%{transform:scale(1.5)}100%{transform:scale(1)}}
+.timer-wrap{position:relative;width:54px;height:54px;}
+.timer-wrap svg{transform:rotate(-90deg);}
+circle.tbg{fill:none;stroke:var(--border);stroke-width:5;}
+circle.tfg{fill:none;stroke:var(--green);stroke-width:5;stroke-linecap:round;stroke-dasharray:163.4;transition:stroke-dashoffset 1s linear,stroke .3s;}
+.timer-n{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:.95rem;}
+.q-num{color:var(--dim);font-size:.82rem;}
+.warn{display:none;position:absolute;top:0;left:0;right:0;background:rgba(245,158,11,.92);color:#111;text-align:center;padding:.45rem;font-weight:700;font-size:.85rem;z-index:50;}
+.warn.show{display:block;}
+.q-area{background:var(--card);flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:.7rem 1.5rem;min-height:120px;max-height:180px;border-bottom:1px solid var(--border);}
+.q-text{font-size:clamp(1.6rem,4vw,3.5rem);font-weight:900;text-align:center;}
+.q-img{max-height:150px;max-width:78%;object-fit:contain;border-radius:10px;}
+.center{flex:1;display:flex;overflow:hidden;position:relative;}
+.zone{flex:0 0 130px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.7rem;transition:all .25s;}
+.zone-l{background:linear-gradient(to right,rgba(59,130,246,.14),transparent);border-right:2px solid rgba(59,130,246,.28);}
+.zone-r{background:linear-gradient(to left,rgba(244,63,94,.14),transparent);border-left:2px solid rgba(244,63,94,.28);}
+.zone-l.on{background:rgba(59,130,246,.22);}
+.zone-r.on{background:rgba(244,63,94,.22);}
+.zone-lbl{font-size:1.4rem;font-weight:900;letter-spacing:2px;writing-mode:vertical-rl;transform:rotate(180deg);}
+.zone-l .zone-lbl{color:var(--blue);}
+.zone-r .zone-lbl{color:var(--red);}
+.zone-ico{font-size:1.9rem;animation:float 3s ease-in-out infinite;}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+.cam-wrap{flex:1;position:relative;background:#000;}
+#videoEl{width:100%;height:100%;object-fit:cover;transform:scaleX(-1);}
+#poseCanvas{position:absolute;inset:0;width:100%;height:100%;transform:scaleX(-1);pointer-events:none;}
+.fb-wrap{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:30;}
+.fb{display:none;padding:.8rem 2rem;border-radius:16px;font-size:2rem;font-weight:900;text-align:center;box-shadow:0 8px 40px rgba(0,0,0,.5);animation:bpop .4s cubic-bezier(.34,1.56,.64,1);}
+.fb.correct{background:linear-gradient(135deg,#059669,var(--green));color:#fff;display:block;}
+.fb.wrong{background:linear-gradient(135deg,#dc2626,var(--red));color:#fff;display:block;}
+.fb.invalid{background:linear-gradient(135deg,#78350f,var(--gold));color:#fff;display:block;}
+@keyframes bpop{from{opacity:0;transform:scale(.3)}to{opacity:1;transform:scale(1)}}
+.statusbar{padding:.35rem 1.1rem;background:var(--surface);border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;font-size:.75rem;color:var(--dim);}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 5px var(--green);animation:blink 1.5s infinite;display:inline-block;margin-right:.35rem;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+.rec{display:flex;align-items:center;gap:.3rem;background:rgba(244,63,94,.1);border:1px solid rgba(244,63,94,.28);padding:.12rem .55rem;border-radius:20px;font-size:.7rem;color:var(--red);font-weight:700;}
+
+/* END */
+#endScreen h2{font-size:clamp(1.6rem,4vw,3rem);font-weight:900;background:linear-gradient(135deg,var(--gold),#fcd34d);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.final-n{font-size:clamp(2.8rem,9vw,6.5rem);font-weight:900;}
+.chips{display:flex;gap:.8rem;flex-wrap:wrap;justify-content:center;}
+.chip{padding:.35rem .9rem;border-radius:50px;font-weight:700;font-size:.8rem;}
+.chip-c{background:rgba(16,185,129,.12);color:var(--green);border:1px solid rgba(16,185,129,.28);}
+.chip-w{background:rgba(244,63,94,.12);color:var(--red);border:1px solid rgba(244,63,94,.28);}
+.chip-i{background:rgba(245,158,11,.12);color:var(--gold);border:1px solid rgba(245,158,11,.28);}
+
+@media(max-width:580px){.zone{flex:0 0 65px;}.grid{grid-template-columns:1fr;max-width:260px;}}
+</style>
+</head>
+<body>
+
+<div class="loading-overlay hidden" id="loadingOverlay">
+  <div class="spinner"></div>
+  <div id="loadingText" style="color:var(--dim);font-size:.88rem;">Loading...</div>
+</div>
+
+<!-- SETUP + START -->
+<div class="screen active" id="startScreen">
+  <div class="logo">
+    <h1>GESTURE QUIZ</h1>
+    <p>Classroom Interactive Quiz - Answer with body movement</p>
+  </div>
+
+  <div class="setup-box">
+    <label>Apps Script Web App URL (paste your deployment URL)</label>
+    <input type="text" id="apiUrl" placeholder="https://script.google.com/macros/s/AKfy.../exec"/>
+    <div class="hint">
+      Deploy code.gs as Web App &rarr; Execute as: Me &rarr; Access: Anyone &rarr; copy URL here.<br/>
+      Leave blank to use demo questions (no Google Sheet needed).
+    </div>
+  </div>
+
+  <div id="step1" style="text-align:center;">
+    <div style="font-size:.88rem;color:var(--dim);margin-bottom:.7rem;">Allow camera then start game</div>
+    <button class="btn btn-green" id="btnCamera">Enable Camera</button>
+    <div class="status-msg" id="camStatus" style="color:var(--dim);">Camera not yet enabled</div>
+  </div>
+
+  <div id="step2" style="display:none;text-align:center;width:100%;max-width:640px;">
+    <div style="font-size:.88rem;color:var(--green);margin-bottom:.7rem;">Camera ready - Start the game!</div>
+    <div class="grid" style="margin-bottom:1rem;">
+      <div class="card"><span class="ico">&#128072;</span><h3>Left Arm</h3><p>Extend left wrist past left shoulder = LEFT</p></div>
+      <div class="card"><span class="ico">&#128694;</span><h3>Walk or Jump</h3><p>Move body into LEFT or RIGHT zone</p></div>
+      <div class="card"><span class="ico">&#128073;</span><h3>Right Arm</h3><p>Extend right wrist past right shoulder = RIGHT</p></div>
+    </div>
+    <button class="btn btn-blue" id="btnStart">Start Game</button>
+  </div>
+
+  <div class="err-box" id="errBox">
+    <p id="errMsg">Camera error</p>
+    <button class="btn btn-blue" id="btnRetry" style="font-size:.82rem;padding:.38rem 1.1rem;border-radius:8px;">Try Again</button>
+  </div>
+</div>
+
+<!-- GAME -->
+<div class="screen" id="gameScreen">
+  <div class="topbar">
+    <div class="score">
+      <span>&#11088;</span>
+      <span class="score-n" id="scoreN">0</span>
+      <span style="color:var(--dim);font-size:.85rem;">/</span>
+      <span id="totalN" style="color:var(--dim);font-weight:700;">0</span>
+    </div>
+    <div class="timer-wrap">
+      <svg viewBox="0 0 60 60" width="54" height="54">
+        <circle class="tbg" cx="30" cy="30" r="26"/>
+        <circle class="tfg" id="timerCircle" cx="30" cy="30" r="26" stroke-dashoffset="0"/>
+      </svg>
+      <div class="timer-n" id="timerN">30</div>
+    </div>
+    <div class="q-num" id="qNum">Q 1/1</div>
+    <button class="btn btn-red" id="btnStop">Stop</button>
+  </div>
+  <div class="warn" id="warnBar">Only ONE student in camera!</div>
+  <div class="q-area" id="qArea"><div class="q-text" id="qContent">Loading...</div></div>
+  <div class="center">
+    <div class="zone zone-l" id="zoneL">
+      <div style="font-size:1.4rem;color:var(--blue);">&#9664;</div>
+      <div class="zone-lbl">LEFT</div>
+      <div class="zone-ico">&#128309;</div>
+    </div>
+    <div class="cam-wrap">
+      <video id="videoEl" autoplay playsinline muted></video>
+      <canvas id="poseCanvas"></canvas>
+      <div class="fb-wrap"><div class="fb" id="fbBadge"></div></div>
+    </div>
+    <div class="zone zone-r" id="zoneR">
+      <div class="zone-ico">&#128308;</div>
+      <div class="zone-lbl">RIGHT</div>
+      <div style="font-size:1.4rem;color:var(--red);">&#9654;</div>
+    </div>
+  </div>
+  <div class="statusbar">
+    <div><span class="dot"></span><span id="camLbl">Camera active</span></div>
+    <div class="rec" id="recBadge"><span>&#9210;</span><span>REC</span></div>
+    <div id="detectLbl">Waiting...</div>
+  </div>
+</div>
+
+<!-- END -->
+<div class="screen" id="endScreen">
+  <h2>Quiz Complete!</h2>
+  <div class="final-n"><span id="finalScore">0</span><span style="color:var(--dim);font-size:.42em;"> / </span><span id="finalTotal" style="color:var(--dim);font-size:.42em;">0</span></div>
+  <div class="chips">
+    <div class="chip chip-c">Correct: <span id="nCorrect">0</span></div>
+    <div class="chip chip-w">Wrong: <span id="nWrong">0</span></div>
+    <div class="chip chip-i">Invalid: <span id="nInvalid">0</span></div>
+  </div>
+  <button class="btn btn-gold" id="btnRestart">Play Again</button>
+</div>
+
+<script>
+var API_URL = '';
+
+var S = {
+  stream:null, pose:null, camera:null,
+  questions:[], queue:[], currentQ:null,
+  qIdx:0, score:0, answered:0, correct:0, wrong:0, invalid:0,
+  timerTotal:30, timerInterval:null,
+  active:false, cooldown:false,
+  mediaRecorder:null, recChunks:[],
+  armHoldTimer:null, bodyHoldTimer:null,
+  curArmSide:null, curBodySide:null
+};
+
+var videoEl = document.getElementById('videoEl');
+var poseCanvas = document.getElementById('poseCanvas');
+var poseCtx = poseCanvas.getContext('2d');
+
+// Audio
+var audioCtx = null;
+function ensureAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+function playTone(type) {
+  ensureAudio();
+  var o = audioCtx.createOscillator(), g = audioCtx.createGain();
+  o.connect(g); g.connect(audioCtx.destination);
+  g.gain.setValueAtTime(0.25, audioCtx.currentTime);
+  if (type === 'correct') {
+    o.frequency.setValueAtTime(523, audioCtx.currentTime);
+    o.frequency.setValueAtTime(659, audioCtx.currentTime + 0.1);
+    o.frequency.setValueAtTime(784, audioCtx.currentTime + 0.2);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.55);
+    o.start(); o.stop(audioCtx.currentTime + 0.55);
+  } else if (type === 'wrong') {
+    o.frequency.setValueAtTime(200, audioCtx.currentTime);
+    o.frequency.setValueAtTime(140, audioCtx.currentTime + 0.15);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.38);
+    o.start(); o.stop(audioCtx.currentTime + 0.38);
+  } else {
+    o.frequency.setValueAtTime(330, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.28);
+    o.start(); o.stop(audioCtx.currentTime + 0.28);
+  }
+}
+
+// Pose
+function initPose() {
+  S.pose = new Pose({
+    locateFile: function(f) { return 'https://cdn.jsdelivr.net/npm/@mediapipe/pose/' + f; }
+  });
+  S.pose.setOptions({ modelComplexity:1, smoothLandmarks:true, minDetectionConfidence:0.5, minTrackingConfidence:0.5 });
+  S.pose.onResults(onPoseResults);
+}
+
+function drawSkeleton(lm, w, h) {
+  var c = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[24,26],[25,27],[26,28]];
+  poseCtx.clearRect(0,0,w,h);
+  poseCtx.strokeStyle = 'rgba(100,220,255,0.6)';
+  poseCtx.lineWidth = 2;
+  for (var k = 0; k < c.length; k++) {
+    var a = lm[c[k][0]], b = lm[c[k][1]];
+    if (a && b && a.visibility > 0.3 && b.visibility > 0.3) {
+      poseCtx.beginPath();
+      poseCtx.moveTo(a.x*w, a.y*h);
+      poseCtx.lineTo(b.x*w, b.y*h);
+      poseCtx.stroke();
+    }
+  }
+  var kp = [11,12,13,14,15,16,23,24];
+  for (var j = 0; j < kp.length; j++) {
+    var p = lm[kp[j]];
+    if (p && p.visibility > 0.3) {
+      poseCtx.beginPath();
+      poseCtx.arc(p.x*w, p.y*h, 5, 0, 6.28);
+      poseCtx.fillStyle = 'rgba(59,130,246,0.85)';
+      poseCtx.fill();
+    }
+  }
+}
+
+function onPoseResults(results) {
+  var w = poseCanvas.width = videoEl.videoWidth || 640;
+  var h = poseCanvas.height = videoEl.videoHeight || 480;
+  if (results.poseLandmarks) {
+    drawSkeleton(results.poseLandmarks, w, h);
+    document.getElementById('detectLbl').textContent = 'Pose detected';
+    if (S.active && !S.cooldown) analyzeGesture(results.poseLandmarks);
+  } else {
+    poseCtx.clearRect(0,0,w,h);
+    document.getElementById('detectLbl').textContent = 'No body detected';
+    clearHolds();
+  }
+}
+
+var ARM_TH = 0.12, BODY_TH = 0.12, HOLD_MS = 600;
+
+function analyzeGesture(lm) {
+  var ls=lm[11], rs=lm[12], lw=lm[15], rw=lm[16];
+  if (!ls || !rs) return;
+  var leftExt = lw && lw.visibility > 0.4 && lw.x < (ls.x - ARM_TH);
+  var rightExt = rw && rw.visibility > 0.4 && rw.x > (rs.x + ARM_TH);
+  if (leftExt && rightExt) { clearHolds(); registerAnswer('INVALID'); return; }
+  var bc = (ls.x + rs.x) / 2;
+  var bodySide = bc < 0.5 - BODY_TH ? 'RIGHT' : bc > 0.5 + BODY_TH ? 'LEFT' : null;
+  document.getElementById('zoneL').classList.toggle('on', bodySide === 'LEFT');
+  document.getElementById('zoneR').classList.toggle('on', bodySide === 'RIGHT');
+  var armSide = leftExt ? 'LEFT' : rightExt ? 'RIGHT' : null;
+  if (armSide) {
+    if (armSide !== S.curArmSide) {
+      clearHolds(); S.curArmSide = armSide;
+      S.armHoldTimer = setTimeout(function() { registerAnswer(armSide); }, HOLD_MS);
+    }
+  } else if (bodySide) {
+    if (bodySide !== S.curBodySide) {
+      clearHolds(); S.curBodySide = bodySide;
+      S.bodyHoldTimer = setTimeout(function() { registerAnswer(bodySide); }, HOLD_MS + 200);
+    }
+  } else { clearHolds(); }
+}
+
+function clearHolds() {
+  clearTimeout(S.armHoldTimer); clearTimeout(S.bodyHoldTimer);
+  S.curArmSide = null; S.curBodySide = null;
+}
+
+function registerAnswer(answer) {
+  if (S.cooldown || !S.active) return;
+  S.cooldown = true; S.active = false;
+  clearHolds(); clearInterval(S.timerInterval);
+  var correct = S.currentQ ? S.currentQ.correct_answer : '';
+  var badge = document.getElementById('fbBadge');
+  var type, text;
+  if (answer === 'TIMEOUT') {
+    type='wrong'; text='Time up! Answer: '+correct; S.wrong++; S.answered++;
+  } else if (answer === 'INVALID') {
+    type='invalid'; text='Both arms! No score.'; S.invalid++; S.answered++;
+  } else if (answer === correct) {
+    type='correct'; text='Correct! +1'; S.score++; S.correct++; S.answered++;
+  } else {
+    type='wrong'; text='Wrong! Answer: '+correct; S.wrong++; S.answered++;
+  }
+  updateScore();
+  badge.className = 'fb ' + type;
+  badge.textContent = text;
+  playTone(type);
+  saveAnswer(answer);
+  setTimeout(function() {
+    badge.className = 'fb';
+    document.getElementById('zoneL').classList.remove('on');
+    document.getElementById('zoneR').classList.remove('on');
+    S.cooldown = false;
+    nextQuestion();
+  }, 2500);
+}
+
+function updateScore() {
+  var el = document.getElementById('scoreN');
+  el.textContent = S.score;
+  el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
+  document.getElementById('totalN').textContent = S.answered;
+}
+
+function startTimer() {
+  var circ = document.getElementById('timerCircle');
+  var C = 163.4, rem = S.timerTotal;
+  document.getElementById('timerN').textContent = rem;
+  circ.style.strokeDashoffset = 0;
+  circ.style.stroke = '#10b981';
+  S.timerInterval = setInterval(function() {
+    rem--;
+    document.getElementById('timerN').textContent = rem;
+    circ.style.strokeDashoffset = C * (1 - rem / S.timerTotal);
+    circ.style.stroke = rem <= 10 ? '#f43f5e' : rem <= 20 ? '#f59e0b' : '#10b981';
+    if (rem <= 0) {
+      clearInterval(S.timerInterval);
+      S.active = true; S.cooldown = false;
+      registerAnswer('TIMEOUT');
+    }
+  }, 1000);
+}
+
+function loadQuestion() {
+  if (!S.queue.length) { endGame(); return; }
+  S.currentQ = S.queue.shift();
+  S.qIdx++;
+  document.getElementById('qNum').textContent = 'Q ' + S.qIdx + '/' + S.questions.length;
+  var area = document.getElementById('qArea');
+  area.innerHTML = '';
+  if (S.currentQ.type === 'image') {
+    var img = document.createElement('img');
+    img.src = S.currentQ.question;
+    img.className = 'q-img';
+    img.onerror = function() {
+      area.innerHTML = '';
+      var t = document.createElement('div');
+      t.className = 'q-text'; t.textContent = S.currentQ.question;
+      area.appendChild(t);
+    };
+    area.appendChild(img);
+  } else {
+    var txt = document.createElement('div');
+    txt.className = 'q-text'; txt.textContent = S.currentQ.question;
+    area.appendChild(txt);
+  }
+  S.active = true; S.cooldown = false; clearHolds(); startTimer();
+}
+
+function nextQuestion() {
+  if (!S.queue.length) endGame(); else loadQuestion();
+}
+
+// API calls via fetch (works from any domain)
+function loadQuestionsFromAPI() {
+  return new Promise(function(resolve) {
+    if (!API_URL) { resolve([]); return; }
+    var url = API_URL + (API_URL.indexOf('?') >= 0 ? '&' : '?') + 'action=questions';
+    fetch(url)
+      .then(function(r) { return r.json(); })
+      .then(function(d) { resolve(d.ok ? d.list : []); })
+      .catch(function() { resolve([]); });
+  });
+}
+
+function saveAnswer(answer) {
+  if (!API_URL || !S.currentQ) return;
+  fetch(API_URL, {
+    method: 'POST',
+    body: JSON.stringify({
+      action: 'save',
+      question_id: S.currentQ.id,
+      answer: answer,
+      correct_answer: S.currentQ.correct_answer
+    }),
+    headers: { 'Content-Type': 'text/plain' }
+  }).catch(function() {});
+}
+
+// Recording
+function startRec(stream) {
+  if (!window.MediaRecorder) return;
+  S.recChunks = [];
+  try { S.mediaRecorder = new MediaRecorder(stream, { mimeType:'video/webm;codecs=vp9' }); }
+  catch(e) { S.mediaRecorder = new MediaRecorder(stream); }
+  S.mediaRecorder.ondataavailable = function(e) { if (e.data.size) S.recChunks.push(e.data); };
+  S.mediaRecorder.onstop = function() {
+    var blob = new Blob(S.recChunks, { type:'video/webm' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    var d = new Date().toISOString().split('T')[0];
+    a.href = url; a.download = 'quiz_' + d + '.webm'; a.click();
+    URL.revokeObjectURL(url);
+  };
+  S.mediaRecorder.start(1000);
+  document.getElementById('recBadge').style.display = 'flex';
+}
+
+function stopRec() {
+  if (S.mediaRecorder && S.mediaRecorder.state !== 'inactive') S.mediaRecorder.stop();
+  document.getElementById('recBadge').style.display = 'none';
+}
+
+// Camera permission
+function requestCamera() {
+  ensureAudio();
+  var btn = document.getElementById('btnCamera');
+  var status = document.getElementById('camStatus');
+  document.getElementById('errBox').style.display = 'none';
+  btn.textContent = 'Requesting...';
+  btn.disabled = true;
+  status.textContent = 'Waiting for browser permission...';
+  navigator.mediaDevices.getUserMedia({ video:{ width:640, height:480 }, audio:false })
+    .then(function(stream) {
+      S.stream = stream;
+      status.textContent = 'Camera ready!';
+      status.style.color = '#10b981';
+      document.getElementById('step1').style.display = 'none';
+      document.getElementById('step2').style.display = 'block';
+    })
+    .catch(function(err) {
+      btn.textContent = 'Enable Camera';
+      btn.disabled = false;
+      status.textContent = 'Permission denied';
+      status.style.color = '#f43f5e';
+      document.getElementById('errMsg').textContent = 'Camera error: ' + (err.message || err);
+      document.getElementById('errBox').style.display = 'block';
+    });
+}
+
+// Start game
+async function startGame() {
+  ensureAudio();
+  API_URL = document.getElementById('apiUrl').value.trim();
+  if (!S.stream) {
+    document.getElementById('errMsg').textContent = 'Please enable camera first.';
+    document.getElementById('errBox').style.display = 'block';
+    return;
+  }
+  var loading = document.getElementById('loadingOverlay');
+  loading.classList.remove('hidden');
+  document.getElementById('loadingText').textContent = 'Loading questions...';
+  videoEl.srcObject = S.stream;
+  try { await videoEl.play(); } catch(e) {}
+  var questions = await loadQuestionsFromAPI();
+  if (!questions.length) {
+    questions = [
+      { id:'1', question:'Apple = LEFT', type:'text', correct_answer:'LEFT' },
+      { id:'2', question:'Elephant = RIGHT', type:'text', correct_answer:'RIGHT' },
+      { id:'3', question:'Sun = LEFT', type:'text', correct_answer:'LEFT' },
+      { id:'4', question:'Wave = RIGHT', type:'text', correct_answer:'RIGHT' },
+      { id:'5', question:'Moon = LEFT', type:'text', correct_answer:'LEFT' }
+    ];
+  }
+  S.questions = questions;
+  S.queue = shuffle(questions.slice());
+  S.score = 0; S.answered = 0; S.correct = 0; S.wrong = 0; S.invalid = 0;
+  S.qIdx = 0; S.timerTotal = 30;
+  loading.classList.add('hidden');
+  document.getElementById('startScreen').classList.remove('active');
+  document.getElementById('gameScreen').classList.add('active');
+  updateScore();
+  initPose();
+  S.camera = new Camera(videoEl, {
+    onFrame: async function() { if (S.pose) await S.pose.send({ image:videoEl }); },
+    width:640, height:480
+  });
+  S.camera.start();
+  startRec(S.stream);
+  loadQuestion();
+}
+
+function stopGame() {
+  clearInterval(S.timerInterval); S.active = false; clearHolds();
+  stopRec();
+  if (S.camera) { S.camera.stop(); S.camera = null; }
+  endGame();
+}
+
+function endGame() {
+  clearInterval(S.timerInterval); S.active = false; stopRec();
+  document.getElementById('gameScreen').classList.remove('active');
+  document.getElementById('finalScore').textContent = S.score;
+  document.getElementById('finalTotal').textContent = S.answered;
+  document.getElementById('nCorrect').textContent = S.correct;
+  document.getElementById('nWrong').textContent = S.wrong;
+  document.getElementById('nInvalid').textContent = S.invalid;
+  document.getElementById('endScreen').classList.add('active');
+}
+
+function restartGame() {
+  document.getElementById('endScreen').classList.remove('active');
+  if (S.camera) { S.camera.stop(); S.camera = null; }
+  if (S.stream) { S.stream.getTracks().forEach(function(t){ t.stop(); }); S.stream = null; }
+  document.getElementById('step1').style.display = 'block';
+  document.getElementById('step2').style.display = 'none';
+  document.getElementById('camStatus').textContent = 'Camera not yet enabled';
+  document.getElementById('camStatus').style.color = '';
+  document.getElementById('btnCamera').textContent = 'Enable Camera';
+  document.getElementById('btnCamera').disabled = false;
+  document.getElementById('startScreen').classList.add('active');
+}
+
+function shuffle(arr) {
+  for (var i = arr.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+  }
+  return arr;
+}
+
+document.getElementById('btnCamera').addEventListener('click', requestCamera);
+document.getElementById('btnStart').addEventListener('click', startGame);
+document.getElementById('btnStop').addEventListener('click', stopGame);
+document.getElementById('btnRestart').addEventListener('click', restartGame);
+document.getElementById('btnRetry').addEventListener('click', requestCamera);
+</script>
+</body>
+</html>
